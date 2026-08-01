@@ -5,3 +5,6 @@ __pycache__/
 assets/
 highscores.json
 smoke*.png
+
+# uncompressed music masters; music/*.ogg is what ships
+*.wav

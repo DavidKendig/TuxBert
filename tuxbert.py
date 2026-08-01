@@ -25,6 +25,7 @@ SCREEN_W, SCREEN_H = 960, 720
 CS = 2.0                   # cube size (world units)
 PLAYER_HOP = 0.26          # seconds per player hop
 ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+MUSIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "music")
 
 # Cube grid: i grows toward the viewer's lower-right, j toward the lower-left;
 # i + j is the depth from the top, so any cell set forms a hoppable staircase.
@@ -393,6 +394,25 @@ def load_sounds():
     except Exception:
         sounds = {}
     return sounds
+
+
+MUSIC_TRACKS = {"menu": ("menu_theme.ogg", 0.55),
+                "game": ("game_loop.ogg", 0.40)}
+
+
+def load_music():
+    tracks = {}
+    if not rl.is_audio_device_ready():
+        return tracks
+    for name, (fname, vol) in MUSIC_TRACKS.items():
+        path = os.path.join(MUSIC_DIR, fname)
+        if not os.path.exists(path):
+            continue
+        stream = rl.load_music_stream(path)
+        stream.looping = True
+        rl.set_music_volume(stream, vol)
+        tracks[name] = stream
+    return tracks
 
 
 # ---------------------------------------------------------------- draw helpers
@@ -788,8 +808,12 @@ def save_hiscores(scores):
 
 
 class Game:
-    def __init__(self, sounds):
+    def __init__(self, sounds, music=None):
         self.sounds = sounds
+        self.music = music or {}
+        self.track = None
+        self.music_on = True
+        self.music_paused = False
         self.cam = rl.Camera3D()
         self.cam.up = v3(0, 1, 0)
         self.cam.fovy = 21.0
@@ -840,6 +864,35 @@ class Game:
         snd = self.sounds.get(name)
         if snd:
             rl.play_sound(snd)
+
+    def set_track(self, name):
+        if name == self.track:
+            return
+        cur = self.music.get(self.track)
+        if cur:
+            rl.stop_music_stream(cur)
+        self.track = name
+        self.music_paused = False
+        nxt = self.music.get(name)
+        if nxt:
+            rl.play_music_stream(nxt)
+
+    def update_music(self):
+        want = None
+        if self.music_on:
+            want = "menu" if self.state in (MENU, HISCORES, ENTER_NAME,
+                                            GAME_OVER) else "game"
+        self.set_track(want)
+        cur = self.music.get(self.track)
+        if not cur:
+            return
+        if self.paused != self.music_paused:
+            self.music_paused = self.paused
+            if self.paused:
+                rl.pause_music_stream(cur)
+            else:
+                rl.resume_music_stream(cur)
+        rl.update_music_stream(cur)
 
     def popup(self, text, world_pos, color=(255, 255, 255, 255)):
         sp = rl.get_world_to_screen(v3(*world_pos), self.cam)
@@ -973,6 +1026,8 @@ class Game:
 
     def update(self, dt):
         self.time += dt
+        if self.state != ENTER_NAME and rl.is_key_pressed(rl.KeyboardKey.KEY_M):
+            self.music_on = not self.music_on
         for p in self.popups:
             p["t"] -= dt
             p["y"] -= 30 * dt
@@ -1228,6 +1283,8 @@ class Game:
             self.center_text(
                 "ARROWS HOP DIAGONALLY   .   CHANGE EVERY CUBE   .   AVOID COILY",
                 640, 16, dim)
+            self.center_text("M   MUSIC " + ("ON" if self.music_on else "OFF"),
+                             668, 16, dim)
             return
         if self.state == HISCORES:
             rl.draw_rectangle(0, 0, SCREEN_W, SCREEN_H, (10, 8, 24, 190))
@@ -1324,7 +1381,8 @@ def main():
     rl.init_window(SCREEN_W, SCREEN_H, "TUX*BERT")
     rl.set_target_fps(60)
     sounds = load_sounds()
-    game = Game(sounds)
+    music = load_music()
+    game = Game(sounds, music)
     game.start_level = max(1, min(len(SHAPES), start_level))
     if smoke:
         game.smoke_moves = [(2.0, DIR_UL), (5.4, DIR_DL), (5.9, DIR_DR),
@@ -1336,6 +1394,7 @@ def main():
     while not rl.window_should_close() and not game.quit:
         dt = min(rl.get_frame_time(), 0.05)
         game.update(dt)
+        game.update_music()
         rl.begin_drawing()
         game.draw()
         rl.end_drawing()
@@ -1356,6 +1415,8 @@ def main():
                                          game.ball_dur))
             if t > 9.4:
                 break
+    for stream in music.values():
+        rl.unload_music_stream(stream)
     rl.close_window()
 
 

@@ -28,6 +28,7 @@ python tuxbert.py
 | → / D | hop down-right |
 | ↓ / S | hop down-left |
 | P | pause |
+| M | music on / off |
 | ENTER | menus / start |
 
 ## 25 levels
@@ -59,3 +60,9 @@ with the difficulty still climbing.
 High scores (top 10, three initials, arcade style) persist in
 `highscores.json`. Sounds are square-wave chirps synthesized on first launch
 into `assets/`.
+
+## Music
+
+Two looping tracks live in `music/`: a menu theme and a gameplay loop. The
+menu theme also covers the high-score and game-over screens. Press **M** at
+any time to toggle music; pausing with **P** pauses the track with it.
