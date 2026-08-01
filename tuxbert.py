@@ -608,6 +608,7 @@ class Player(Hopper):
         self.riding = None       # Disc being ridden
         self.ride_t = 0.0
         self.ride_start = self.pos
+        self.ride_target = (i, j)
         self.alive = True
         self.yaw = 45.0          # face the camera on spawn
 
@@ -816,6 +817,9 @@ class Game:
     def fit_camera(self):
         """Frame the current shape: classic corner angle, size to fit."""
         pts = [cube_center(i, j) for (i, j) in self.board.cells]
+        # keep the airspace above the top cube in frame for disc rides
+        tx, ty, tz = cube_top(*self.board.top_cell)
+        pts.append((tx, ty + 4.5, tz))
         n = len(pts)
         tgt = (sum(p[0] for p in pts) / n, sum(p[1] for p in pts) / n + 0.8,
                sum(p[2] for p in pts) / n)
@@ -1070,7 +1074,7 @@ class Game:
                 self.play("hop")
             landed = p.update(dt)
             if landed:
-                if on_board(p.i, p.j):
+                if not p.falling:       # landed on a real cube
                     pts = self.board.land(p.i, p.j)
                     if pts:
                         self.add_score(pts)
@@ -1084,13 +1088,7 @@ class Game:
                 else:
                     disc = next((d for d in self.discs if d.key == (p.ti, p.tj)), None)
                     if disc:
-                        p.falling = False
-                        p.riding = disc
-                        p.ride_t = 0.0
-                        p.ride_start = disc.pos
-                        p.pos = disc.pos
-                        self.discs.remove(disc)
-                        self.play("disc")
+                        self.board_disc(disc)
                     else:
                         self.play("fall")
             if p.falling and p.pos[1] < self.board.fall_y:
@@ -1104,7 +1102,7 @@ class Game:
             if not frozen:
                 e.ai(self, dt)
                 landed = e.update(dt)
-                if landed and on_board(e.i, e.j):
+                if landed and not e.falling:
                     if isinstance(e, Ball) and e.kind == "slick":
                         self.board.revert(e.i, e.j)
                     if isinstance(e, Coily) and e.falling:
@@ -1140,13 +1138,26 @@ class Game:
                         self.add_score(300, e.pos, "300")
                         self.play("catch")
 
+    def board_disc(self, disc):
+        """Classic Q*bert disc ride: carries Tux back to the top cube while
+        Coily, mid-chase, hops off the edge after him."""
+        p = self.player
+        p.falling = False
+        p.riding = disc
+        p.ride_t = 0.0
+        p.ride_start = disc.pos
+        p.pos = disc.pos
+        p.ride_target = self.board.top_cell
+        self.discs.remove(disc)
+        self.play("disc")
+
     def update_ride(self, dt):
         p = self.player
         p.ride_t += dt
         dur = 2.0
         s = min(1.0, p.ride_t / dur)
         ease = s * s * (3 - 2 * s)
-        top = cube_top(*self.board.top_cell)
+        top = cube_top(*p.ride_target)
         end = (top[0], top[1] + 3.2, top[2])
         pos = lerp3(p.ride_start, end, ease)
         lift = math.sin(min(1.0, s * 2) * math.pi / 2) * 1.5
@@ -1161,7 +1172,7 @@ class Game:
             p.p1 = top
             p.jt = 0.0
             p.jdur = 0.4
-            p.ti, p.tj = self.board.top_cell
+            p.ti, p.tj = p.ride_target
 
     # ---------------- drawing
 
@@ -1316,10 +1327,9 @@ def main():
     game = Game(sounds)
     game.start_level = max(1, min(len(SHAPES), start_level))
     if smoke:
-        game.smoke_moves = [(2.0, DIR_DL), (2.5, DIR_DR), (3.0, DIR_DL),
-                            (3.5, DIR_UR), (4.0, DIR_DR), (4.5, DIR_DL),
-                            (5.5, DIR_DR), (6.5, DIR_UL), (7.5, DIR_UR)]
-    shots = {0.8: "smoke_menu.png", 3.9: "smoke.png", 7.8: "smoke_coily.png"}
+        game.smoke_moves = [(2.0, DIR_UL), (5.4, DIR_DL), (5.9, DIR_DR),
+                            (6.4, DIR_DL)]
+    shots = {0.8: "smoke_menu.png", 3.2: "smoke_ride.png", 5.2: "smoke.png"}
     t = 0.0
     started = False
     egg_spawned = False
@@ -1337,6 +1347,8 @@ def main():
             if t > 1.0 and not started:
                 started = True
                 game.start_game(game.start_level)
+                # plant a disc one up-left hop from the start cube
+                game.discs = [Disc((-1, 0))] + game.discs[1:]
             if t > 1.4 and not egg_spawned and game.state == PLAYING:
                 egg_spawned = True
                 game.enemies.append(Coily(5, 1, game.coily_wait, game.coily_dur))
